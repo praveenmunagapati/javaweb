@@ -1,5 +1,6 @@
 /**
  * JavaBox Main IDE Application Controller
+ * Powered by Monaco Editor & CheerpJ 3.0 WebAssembly JVM Engine
  */
 
 class JavaBoxApp {
@@ -9,21 +10,44 @@ class JavaBoxApp {
     this.activeFileId = null;
     this.activeEngine = 'cheerpj-wasm';
     
+    this.monacoEditor = null;
     this.cheerpjEngine = null;
     this.stdinResolver = null;
 
     this.initElements();
     this.initTemplates();
+    this.initMonacoEditor();
     this.bindEvents();
-    this.initEditor();
     this.initResizer();
     this.loadStateFromURL();
+
+    // Preload CheerpJ WASM JDK on Startup
+    this.preloadJDK();
+  }
+
+  preloadJDK() {
+    this.cheerpjEngine = new CheerpJEngine({
+      onOutput: (msg, type) => this.appendTerminalOutput(msg, type),
+      onError: (msg) => this.appendTerminalOutput(msg, "stderr"),
+      onPromptInput: (promptText) => this.requestStdinPrompt(promptText),
+      canvasElement: this.el.javaCanvas,
+      onStatusChange: (status, message) => {
+        if (status === 'loading') {
+          this.el.engineBadge.className = 'badge badge-warning';
+          this.el.engineBadge.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ${message}`;
+        } else {
+          this.el.engineBadge.className = 'badge badge-success';
+          this.el.engineBadge.innerHTML = `<i class="fa-solid fa-circle-check"></i> ${message}`;
+        }
+      }
+    });
+
+    this.cheerpjEngine.init();
   }
 
   initElements() {
     this.el = {
-      editor: document.getElementById('code-editor'),
-      gutter: document.getElementById('editor-gutter'),
+      editorContainer: document.getElementById('monaco-editor-container'),
       lintBar: document.getElementById('lint-status-bar'),
       tabBar: document.getElementById('tab-bar'),
       fileTree: document.getElementById('file-tree-container'),
@@ -38,7 +62,6 @@ class JavaBoxApp {
       btnNewFile: document.getElementById('btn-new-file'),
       btnImportFile: document.getElementById('btn-import-file'),
       fileInput: document.getElementById('file-input'),
-      engineSelect: document.getElementById('engine-select'),
       engineBadge: document.getElementById('engine-badge'),
       
       terminalOutput: document.getElementById('terminal-output'),
@@ -72,12 +95,10 @@ class JavaBoxApp {
   }
 
   initTemplates() {
-    // Load default starter files
     Object.keys(JAVA_TEMPLATES).forEach(key => {
       this.files.set(key, { ...JAVA_TEMPLATES[key] });
     });
 
-    // Render templates in sidebar
     this.el.templatesContainer.innerHTML = '';
     Object.keys(JAVA_TEMPLATES).forEach(key => {
       const template = JAVA_TEMPLATES[key];
@@ -95,7 +116,47 @@ class JavaBoxApp {
     });
 
     this.renderFileTree();
-    this.openFile('Main.java');
+  }
+
+  initMonacoEditor() {
+    if (typeof require !== 'undefined') {
+      require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.43.0/min/vs' } });
+      require(['vs/editor/editor.main'], () => {
+        this.monacoEditor = monaco.editor.create(this.el.editorContainer, {
+          value: this.files.get('Main.java').content,
+          language: 'java',
+          theme: 'vs-dark',
+          automaticLayout: true,
+          fontSize: 14,
+          fontFamily: "'Fira Code', 'Cascadia Code', Consolas, Monaco, monospace",
+          minimap: { enabled: true },
+          scrollBeyondLastLine: false,
+          renderLineHighlight: 'all',
+          lineNumbers: 'on',
+          cursorBlinking: 'smooth',
+          tabSize: 4
+        });
+
+        this.monacoEditor.onDidChangeModelContent(() => {
+          if (this.activeFileId && this.files.has(this.activeFileId)) {
+            this.files.get(this.activeFileId).content = this.monacoEditor.getValue();
+          }
+          this.updateLinting();
+          this.updateOutlineAndAST();
+        });
+
+        this.monacoEditor.onDidChangeCursorPosition((e) => {
+          this.el.statusCursor.textContent = `Ln ${e.position.lineNumber}, Col ${e.position.column}`;
+        });
+
+        // Add Run shortcut in Monaco (Ctrl + Enter)
+        this.monacoEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
+          this.runCurrentCode();
+        });
+
+        this.openFile('Main.java');
+      });
+    }
   }
 
   renderFileTree() {
@@ -139,13 +200,14 @@ class JavaBoxApp {
     this.activeFileId = filename;
     const file = this.files.get(filename);
     
-    this.el.editor.value = file.content;
+    if (this.monacoEditor) {
+      this.monacoEditor.setValue(file.content);
+    }
+
     this.renderTabs();
     this.renderFileTree();
-    this.updateGutter();
     this.updateLinting();
     this.updateOutlineAndAST();
-    this.updateCursorStatus();
   }
 
   renderTabs() {
@@ -183,7 +245,7 @@ class JavaBoxApp {
         this.openFile(this.openTabs[Math.max(0, idx - 1)]);
       } else {
         this.activeFileId = null;
-        this.el.editor.value = '';
+        if (this.monacoEditor) this.monacoEditor.setValue('');
         this.renderTabs();
         this.renderFileTree();
       }
@@ -206,84 +268,25 @@ class JavaBoxApp {
     }
   }
 
-  initEditor() {
-    const editor = this.el.editor;
-
-    editor.addEventListener('input', () => {
-      if (this.activeFileId && this.files.has(this.activeFileId)) {
-        this.files.get(this.activeFileId).content = editor.value;
-      }
-      this.updateGutter();
-      this.updateLinting();
-      this.updateOutlineAndAST();
-    });
-
-    editor.addEventListener('scroll', () => {
-      this.el.gutter.scrollTop = editor.scrollTop;
-    });
-
-    editor.addEventListener('keyup', () => this.updateCursorStatus());
-    editor.addEventListener('click', () => this.updateCursorStatus());
-
-    // Tab key & smart indent handler
-    editor.addEventListener('keydown', (e) => {
-      if (e.key === 'Tab') {
-        e.preventDefault();
-        const start = editor.selectionStart;
-        const end = editor.selectionEnd;
-        editor.value = editor.value.substring(0, start) + "    " + editor.value.substring(end);
-        editor.selectionStart = editor.selectionEnd = start + 4;
-        editor.dispatchEvent(new Event('input'));
-      } else if (e.key === 'Enter') {
-        // Auto-indent matching previous line
-        const start = editor.selectionStart;
-        const currentLine = editor.value.substring(0, start).split('\n').pop();
-        const indentMatch = currentLine.match(/^(\s*)/);
-        let indent = indentMatch ? indentMatch[1] : '';
-        
-        if (currentLine.trim().endsWith('{')) {
-          indent += '    ';
-        }
-
-        if (indent.length > 0) {
-          e.preventDefault();
-          editor.value = editor.value.substring(0, start) + "\n" + indent + editor.value.substring(start);
-          editor.selectionStart = editor.selectionEnd = start + 1 + indent.length;
-          editor.dispatchEvent(new Event('input'));
-        }
-      } else if (e.ctrlKey && e.key === 'Enter') {
-        e.preventDefault();
-        this.runCurrentCode();
-      } else if (e.ctrlKey && e.key === 's') {
-        e.preventDefault();
-        this.showToast(`Saved ${this.activeFileId || 'file'}`);
-      }
-    });
-  }
-
-  updateGutter() {
-    const lines = this.el.editor.value.split('\n').length;
-    let gutterHTML = '';
-    for (let i = 1; i <= lines; i++) {
-      gutterHTML += `${i}<br>`;
-    }
-    this.el.gutter.innerHTML = gutterHTML;
-  }
-
-  updateCursorStatus() {
-    const editor = this.el.editor;
-    const pos = editor.selectionStart;
-    const textBefore = editor.value.substring(0, pos);
-    const lines = textBefore.split('\n');
-    const lineNum = lines.length;
-    const colNum = lines[lines.length - 1].length + 1;
-    this.el.statusCursor.textContent = `Ln ${lineNum}, Col ${colNum}`;
-  }
-
   updateLinting() {
-    if (!this.activeFileId) return;
-    const code = this.el.editor.value;
+    if (!this.activeFileId || !this.monacoEditor) return;
+    const code = this.monacoEditor.getValue();
     const diagnostics = JavaLinter.analyze(code);
+
+    // Set Monaco Editor markers (red squiggly underlines)
+    const model = this.monacoEditor.getModel();
+    if (model && typeof monaco !== 'undefined') {
+      const monacoMarkers = diagnostics.map(d => ({
+        severity: d.type === 'error' ? monaco.MarkerSeverity.Error : monaco.MarkerSeverity.Warning,
+        message: d.message,
+        startLineNumber: d.line,
+        startColumn: d.startColumn || 1,
+        endLineNumber: d.line,
+        endColumn: d.endColumn || 20
+      }));
+
+      monaco.editor.setModelMarkers(model, 'java-linter', monacoMarkers);
+    }
 
     if (diagnostics.length === 0) {
       this.el.lintBar.innerHTML = `<i class="fa-solid fa-circle-check text-success"></i> No syntax errors detected.`;
@@ -295,16 +298,14 @@ class JavaBoxApp {
   }
 
   updateOutlineAndAST() {
-    if (!this.activeFileId) return;
-    const code = this.el.editor.value;
+    if (!this.activeFileId || !this.monacoEditor) return;
+    const code = this.monacoEditor.getValue();
     const ast = JavaAST.parseStructure(code);
     const bytecode = JavaAST.generateBytecodeView(code);
 
-    // Update raw views
     this.el.astRawView.textContent = JSON.stringify(ast, null, 2);
     this.el.bytecodeRawView.textContent = bytecode;
 
-    // Update sidebar outline
     this.el.outlineContainer.innerHTML = '';
     if (ast.classes.length === 0) {
       this.el.outlineContainer.innerHTML = `<div class="empty-state">No class definitions detected</div>`;
@@ -335,24 +336,15 @@ class JavaBoxApp {
   }
 
   bindEvents() {
-    // Run Button
     this.el.btnRun.addEventListener('click', () => this.runCurrentCode());
-
-    // Format Code Button
     this.el.btnFormat.addEventListener('click', () => this.formatCode());
-
-    // Share Button
     this.el.btnShare.addEventListener('click', () => this.shareProject());
-
-    // Export Button
     this.el.btnExport.addEventListener('click', () => this.exportFiles());
 
-    // Clear Console
     this.el.btnClearConsole.addEventListener('click', () => {
       this.el.terminalOutput.innerHTML = `<div class="term-line term-system">Terminal output cleared.</div>`;
     });
 
-    // New File Button
     this.el.btnNewFile.addEventListener('click', () => {
       this.showPromptModal("Enter New File Name", "e.g. MyClass.java", (filename) => {
         if (filename) {
@@ -369,7 +361,6 @@ class JavaBoxApp {
       });
     });
 
-    // Import File
     this.el.btnImportFile.addEventListener('click', () => this.el.fileInput.click());
     this.el.fileInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
@@ -384,7 +375,6 @@ class JavaBoxApp {
       }
     });
 
-    // Sidebar Activity Bar Tabs
     document.querySelectorAll('.activity-bar .nav-item[data-tab]').forEach(btn => {
       btn.addEventListener('click', () => {
         document.querySelectorAll('.activity-bar .nav-item').forEach(b => b.classList.remove('active'));
@@ -397,16 +387,16 @@ class JavaBoxApp {
       });
     });
 
-    // Snippets Insert Click
     document.querySelectorAll('.snippet-item').forEach(item => {
       item.addEventListener('click', () => {
         const snippetText = item.getAttribute('data-snippet').replace(/\\n/g, '\n').replace(/&quot;/g, '"');
-        this.insertTextAtCursor(snippetText);
+        if (this.monacoEditor) {
+          this.monacoEditor.trigger('keyboard', 'type', { text: snippetText });
+        }
         this.showToast("Inserted code snippet");
       });
     });
 
-    // Bottom Output Panel Tabs
     document.querySelectorAll('.panel-tab-bar .tab-btn[data-panel]').forEach(btn => {
       btn.addEventListener('click', () => {
         document.querySelectorAll('.panel-tab-bar .tab-btn').forEach(b => b.classList.remove('active'));
@@ -419,13 +409,11 @@ class JavaBoxApp {
       });
     });
 
-    // Submit STDIN
     this.el.btnSubmitStdin.addEventListener('click', () => this.handleStdinSubmit());
     this.el.terminalStdinInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') this.handleStdinSubmit();
     });
 
-    // Command Palette Modal
     this.el.btnCommandPalette.addEventListener('click', () => this.openCommandPalette());
     document.addEventListener('keydown', (e) => {
       if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'p') {
@@ -434,15 +422,18 @@ class JavaBoxApp {
       }
     });
 
-    // Theme Switcher & Setting
     this.el.btnThemeToggle.addEventListener('click', () => this.cycleTheme());
     this.el.settingTheme.addEventListener('change', (e) => {
       document.body.className = e.target.value;
+      if (this.monacoEditor) {
+        monaco.editor.setTheme(e.target.value.includes('cyberpunk') ? 'vs-dark' : 'vs-dark');
+      }
     });
 
     this.el.settingFontSize.addEventListener('change', (e) => {
-      this.el.editor.style.fontSize = e.target.value;
-      this.el.gutter.style.fontSize = e.target.value;
+      if (this.monacoEditor) {
+        this.monacoEditor.updateOptions({ fontSize: parseInt(e.target.value, 10) });
+      }
     });
   }
 
@@ -451,7 +442,7 @@ class JavaBoxApp {
     const bottomPanel = this.el.bottomPanel || document.getElementById('bottom-panel');
     let isDragging = false;
 
-    resizer.addEventListener('mousedown', (e) => {
+    resizer.addEventListener('mousedown', () => {
       isDragging = true;
       document.body.style.cursor = 'ns-resize';
     });
@@ -471,31 +462,29 @@ class JavaBoxApp {
     });
   }
 
-  insertTextAtCursor(text) {
-    const editor = this.el.editor;
-    const start = editor.selectionStart;
-    const end = editor.selectionEnd;
-    editor.value = editor.value.substring(0, start) + text + editor.value.substring(end);
-    editor.selectionStart = editor.selectionEnd = start + text.length;
-    editor.dispatchEvent(new Event('input'));
-    editor.focus();
-  }
-
   async runCurrentCode() {
-    if (!this.activeFileId) return;
+    if (!this.activeFileId || !this.monacoEditor) return;
 
-    const code = this.el.editor.value;
-    this.appendTerminalOutput(`\n--- Starting Execution in CheerpJ 3.0 WASM JVM: ${this.activeFileId} ---`, "system");
+    const code = this.monacoEditor.getValue();
+
+    // STRICT COMPILER SYNTAX CHECKING: Check for missing semicolons, unterminated strings, unmatched braces
+    const diagnostics = JavaLinter.analyze(code);
+    const compileErrors = diagnostics.filter(d => d.type === 'error');
 
     // Switch active view to terminal tab
     document.querySelector('.tab-btn[data-panel="terminal"]').click();
 
-    this.cheerpjEngine = new CheerpJEngine({
-      onOutput: (msg, type) => this.appendTerminalOutput(msg, type),
-      onError: (msg) => this.appendTerminalOutput(msg, "stderr"),
-      onPromptInput: (promptText) => this.requestStdinPrompt(promptText),
-      canvasElement: this.el.javaCanvas
-    });
+    if (compileErrors.length > 0) {
+      this.appendTerminalOutput(`\n--- Compilation Failed: ${compileErrors.length} Error(s) Detected ---`, "stderr");
+      compileErrors.forEach(err => {
+        this.appendTerminalOutput(`[COMPILATION ERROR] Line ${err.line}: ${err.message}`, "stderr");
+      });
+      this.appendTerminalOutput(`Build failed. Correct syntax errors before running.`, "stderr");
+      this.showToast(`Build Failed: ${compileErrors.length} Compiler Error(s)`, "error");
+      return; // ABORT EXECUTION IMMEDIATELY
+    }
+
+    this.appendTerminalOutput(`\n--- Executing ${this.activeFileId} in CheerpJ 3.0 WASM JVM ---`, "system");
 
     const res = await this.cheerpjEngine.run(code, this.activeFileId);
     if (res.success && code.includes('Test')) {
@@ -533,21 +522,8 @@ class JavaBoxApp {
   }
 
   formatCode() {
-    if (!this.activeFileId) return;
-    let code = this.el.editor.value;
-    const lines = code.split('\n');
-    let indentLevel = 0;
-    const formatted = lines.map(line => {
-      let trimmed = line.trim();
-      if (trimmed.startsWith('}')) indentLevel = Math.max(0, indentLevel - 1);
-      const ind = '    '.repeat(indentLevel);
-      if (trimmed.endsWith('{')) indentLevel++;
-      return trimmed ? ind + trimmed : '';
-    }).join('\n');
-
-    this.el.editor.value = formatted;
-    this.files.get(this.activeFileId).content = formatted;
-    this.updateGutter();
+    if (!this.activeFileId || !this.monacoEditor) return;
+    this.monacoEditor.getAction('editor.action.formatDocument').run();
     this.showToast("Formatted Java Code");
   }
 
@@ -591,7 +567,7 @@ class JavaBoxApp {
         <h4 style="color:var(--accent-green); margin-bottom:8px;"><i class="fa-solid fa-vial-circle-check"></i> JUnit Assertion Summary</h4>
         <div style="font-size:12px; color:var(--text-main);">
           <div>Test Suite: ${this.activeFileId}</div>
-          <div>Execution Engine: Client-Side Java VM</div>
+          <div>Execution Engine: CheerpJ 3.0 WASM JVM</div>
           <div>Status: <span class="badge badge-success">ALL PASSED</span></div>
         </div>
       </div>
@@ -606,8 +582,6 @@ class JavaBoxApp {
       { name: 'Run Java Code', action: () => this.runCurrentCode() },
       { name: 'Format Java Source', action: () => this.formatCode() },
       { name: 'Create New File', action: () => this.el.btnNewFile.click() },
-      { name: 'Switch Engine: Client VM', action: () => { this.el.engineSelect.value = 'client-vm'; this.el.engineSelect.dispatchEvent(new Event('change')); } },
-      { name: 'Switch Engine: Cloud OpenJDK', action: () => { this.el.engineSelect.value = 'cloud-openjdk'; this.el.engineSelect.dispatchEvent(new Event('change')); } },
       { name: 'Clear Output Console', action: () => this.el.btnClearConsole.click() },
       { name: 'Share Code Link', action: () => this.shareProject() }
     ]);
@@ -617,7 +591,7 @@ class JavaBoxApp {
     this.el.paletteResults.innerHTML = '';
     options.forEach(opt => {
       const item = document.createElement('div');
-      item.className = 'palette-item';
+      item.className = `palette-item`;
       item.innerHTML = `<span>${opt.name}</span><i class="fa-solid fa-chevron-right" style="font-size:10px"></i>`;
       item.addEventListener('click', () => {
         this.el.commandPaletteModal.classList.add('hidden');
@@ -685,7 +659,6 @@ class JavaBoxApp {
   }
 }
 
-// Instantiate JavaBox IDE on page load
 window.addEventListener('DOMContentLoaded', () => {
   window.javaBox = new JavaBoxApp();
 });

@@ -14,6 +14,9 @@
   <!-- FontAwesome Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   
+  <!-- Monaco Editor AMD Loader -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.43.0/min/vs/loader.min.js"></script>
+
   <!-- CheerpJ 3.0 WebAssembly JVM Loader -->
   <script src="https://cjrtnc.leaningtech.com/3.0/cj3loader.js"></script>
 
@@ -240,8 +243,7 @@
 
         <!-- CODE EDITOR CONTAINER -->
         <div class="editor-container" id="editor-container">
-          <div class="gutter-lines" id="editor-gutter">1</div>
-          <textarea id="code-editor" spellcheck="false" autocomplete="off" placeholder="// Type your Java code here..."></textarea>
+          <div id="monaco-editor-container" style="width:100%; height:100%;"></div>
 
           <!-- Linting Warning/Error Overlay Bar -->
           <div class="editor-lint-status" id="lint-status-bar">

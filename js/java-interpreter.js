@@ -209,13 +209,13 @@ class JavaInterpreter {
     js = js.replace(/void\s+main\s*\(\s*String\[\]\s+([A-Za-z0-9_]+)\s*\)/g, 'static async main($1)');
 
     // static methods -> static methodName(paramList)
-    js = js.replace(/static\s+(?:void|int|double|boolean|String|Object|[\w<>\[\]]+)\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)/g, (match, name, params) => {
+    js = js.replace(/\bstatic\s+\b(?!(?:async|static)\b)(?:void|int|double|boolean|String|Object|[\w<>\[\]]+)\b\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)/g, (match, name, params) => {
       const cleanParams = params.split(',').map(p => p.trim().split(/\s+/).pop()).join(', ');
       return `static ${name}(${cleanParams})`;
     });
 
     // instance methods inside classes -> methodName(paramList)
-    js = js.replace(/(?:void|int|double|boolean|String|Object|[\w<>\[\]]+)\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)\s*\{/g, (match, name, params) => {
+    js = js.replace(/\b(?!(?:async|static)\b)(?:void|int|double|boolean|String|Object|[\w<>\[\]]+)\b\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)\s*\{/g, (match, name, params) => {
       if (name === 'if' || name === 'for' || name === 'while' || name === 'switch' || name === 'catch') return match;
       const cleanParams = params.split(',').map(p => p.trim().split(/\s+/).pop()).join(', ');
       return `${name}(${cleanParams}) {`;
@@ -234,7 +234,25 @@ class JavaInterpreter {
     // 8. Handle enhanced for loops: for (int x : arr) -> for (let x of arr)
     js = js.replace(/for\s*\(\s*(?:int|double|String|var|let|[\w<>]+)\s+([A-Za-z0-9_]+)\s*:\s*([^)]+)\)/g, 'for (let $1 of $2)');
 
-    // 9. Automatic Main class launcher
+    // 9. Bind static methods of defined classes to global execution scope so calls like isPrime(n) work directly
+    js += `
+    if (typeof Main !== 'undefined') {
+      for (const key of Object.getOwnPropertyNames(Main)) {
+        if (typeof Main[key] === 'function' && key !== 'constructor') {
+          globalThis[key] = Main[key];
+        }
+      }
+    }
+    if (typeof JUnitTests !== 'undefined') {
+      for (const key of Object.getOwnPropertyNames(JUnitTests)) {
+        if (typeof JUnitTests[key] === 'function' && key !== 'constructor') {
+          globalThis[key] = JUnitTests[key];
+        }
+      }
+    }
+    `;
+
+    // 10. Automatic Main class launcher
     js += `
     if (typeof Main !== 'undefined' && typeof Main.main === 'function') {
       await Main.main();
