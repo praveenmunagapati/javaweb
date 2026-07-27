@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JavaBox - Modern In-Browser Java IDE</title>
+  <meta name="description" content="High-performance, feature-rich Java IDE running entirely in your browser with zero latency client-side JVM, OpenJDK cloud fallback, and 2D canvas graphics renderer.">
+  
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- CheerpJ 3.0 WebAssembly JVM Loader -->
+  <script src="https://cjrtnc.leaningtech.com/3.0/cj3loader.js"></script>
+
+  <!-- CSS Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="theme-jetbrains">
+
+  <div id="app" class="ide-container">
+
+    <!-- TOP NAVBAR / TOOLBAR -->
+    <header class="ide-header">
+      <div class="header-left">
+        <div class="brand">
+          <div class="brand-icon"><i class="fa-brands fa-java"></i></div>
+          <div class="brand-text">
+            <span class="brand-name">JavaBox</span>
+            <span class="brand-tag">WASM JVM 3.0</span>
+          </div>
+        </div>
+        
+        <div class="header-divider"></div>
+
+        <div class="project-info">
+          <span class="project-name" id="current-project-title">JavaBox-Project</span>
+          <span class="badge badge-success" id="engine-badge"><i class="fa-solid fa-microchip"></i> CheerpJ 3.0 WebAssembly JVM</span>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <!-- Execution Controls -->
+        <button class="btn btn-primary btn-run" id="btn-run" title="Run Code in CheerpJ WASM (Ctrl + Enter)">
+          <i class="fa-solid fa-play"></i> Run Code (WASM)
+        </button>
+        
+        <button class="btn btn-secondary" id="btn-stop" title="Stop Execution" disabled>
+          <i class="fa-solid fa-stop"></i>
+        </button>
+
+        <div class="header-divider"></div>
+
+        <!-- Utility Buttons -->
+        <button class="btn btn-icon" id="btn-format" title="Format Code (Shift + Alt + F)">
+          <i class="fa-solid fa-code"></i>
+        </button>
+
+        <button class="btn btn-icon" id="btn-share" title="Share Project Link">
+          <i class="fa-solid fa-share-nodes"></i>
+        </button>
+
+        <button class="btn btn-icon" id="btn-export" title="Export Files (.java / .zip)">
+          <i class="fa-solid fa-download"></i>
+        </button>
+
+        <button class="btn btn-icon" id="btn-command-palette" title="Command Palette (Ctrl + Shift + P)">
+          <i class="fa-solid fa-terminal"></i>
+        </button>
+
+        <button class="btn btn-icon" id="btn-theme-toggle" title="Switch Color Theme">
+          <i class="fa-solid fa-palette"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- MAIN WORKBENCH BODY -->
+    <div class="workbench">
+
+      <!-- LEFT SIDEBAR NAV -->
+      <nav class="activity-bar">
+        <div class="nav-group top-nav">
+          <button class="nav-item active" data-tab="explorer" title="File Explorer (Ctrl+Shift+E)">
+            <i class="fa-regular fa-folder-closed"></i>
+          </button>
+          <button class="nav-item" data-tab="outline" title="AST & Code Outline">
+            <i class="fa-solid fa-sitemap"></i>
+          </button>
+          <button class="nav-item" data-tab="templates" title="Template Library">
+            <i class="fa-solid fa-cubes"></i>
+          </button>
+          <button class="nav-item" data-tab="snippets" title="Java Code Snippets">
+            <i class="fa-solid fa-file-code"></i>
+          </button>
+        </div>
+
+        <div class="nav-group bottom-nav">
+          <button class="nav-item" data-tab="shortcuts" title="Keyboard Shortcuts">
+            <i class="fa-solid fa-keyboard"></i>
+          </button>
+          <button class="nav-item" data-tab="settings" title="IDE Settings">
+            <i class="fa-solid fa-gear"></i>
+          </button>
+        </div>
+      </nav>
+
+      <!-- SIDEBAR DRAWER PANELS -->
+      <aside class="sidebar-drawer" id="sidebar-drawer">
+
+        <!-- EXPLORER PANEL -->
+        <div class="drawer-panel active" id="panel-explorer">
+          <div class="panel-header">
+            <span>EXPLORER</span>
+            <div class="panel-actions">
+              <button class="icon-btn" id="btn-new-file" title="New File"><i class="fa-solid fa-file-circle-plus"></i></button>
+              <button class="icon-btn" id="btn-import-file" title="Import File"><i class="fa-solid fa-file-import"></i></button>
+              <input type="file" id="file-input" accept=".java" style="display:none">
+            </div>
+          </div>
+          <div class="file-tree" id="file-tree-container">
+            <!-- Dynamic File List Rendered Here -->
+          </div>
+        </div>
+
+        <!-- AST OUTLINE PANEL -->
+        <div class="drawer-panel" id="panel-outline">
+          <div class="panel-header">
+            <span>AST OUTLINE</span>
+          </div>
+          <div class="outline-content" id="outline-container">
+            <div class="empty-state">Open a Java file to view AST structure</div>
+          </div>
+        </div>
+
+        <!-- TEMPLATES LIBRARY PANEL -->
+        <div class="drawer-panel" id="panel-templates">
+          <div class="panel-header">
+            <span>STARTER TEMPLATES</span>
+          </div>
+          <div class="templates-list" id="templates-container">
+            <!-- Dynamic Template Cards -->
+          </div>
+        </div>
+
+        <!-- SNIPPETS PANEL -->
+        <div class="drawer-panel" id="panel-snippets">
+          <div class="panel-header">
+            <span>JAVA SNIPPETS</span>
+          </div>
+          <div class="snippets-list" id="snippets-container">
+            <div class="snippet-item" data-snippet="System.out.println(&quot;&quot;);">
+              <span class="snippet-title">System.out.println</span>
+              <span class="snippet-desc">Print message with newline</span>
+            </div>
+            <div class="snippet-item" data-snippet="Scanner scanner = new Scanner(System.in);">
+              <span class="snippet-title">Scanner Initialization</span>
+              <span class="snippet-desc">Setup console user input</span>
+            </div>
+            <div class="snippet-item" data-snippet="for (int i = 0; i < 10; i++) {\n    \n}">
+              <span class="snippet-title">For Loop</span>
+              <span class="snippet-desc">Standard index iteration loop</span>
+            </div>
+            <div class="snippet-item" data-snippet="try {\n    \n} catch (Exception e) {\n    e.printStackTrace();\n}">
+              <span class="snippet-title">Try-Catch Block</span>
+              <span class="snippet-desc">Exception handling pattern</span>
+            </div>
+            <div class="snippet-item" data-snippet="public static void main(String[] args) {\n    \n}">
+              <span class="snippet-title">main Method</span>
+              <span class="snippet-desc">Standard entry point function</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- SHORTCUTS PANEL -->
+        <div class="drawer-panel" id="panel-shortcuts">
+          <div class="panel-header">
+            <span>KEYBOARD SHORTCUTS</span>
+          </div>
+          <div class="shortcuts-list">
+            <div class="shortcut-row"><span class="key">Ctrl + Enter</span><span>Run Code</span></div>
+            <div class="shortcut-row"><span class="key">Ctrl + Shift + P</span><span>Command Palette</span></div>
+            <div class="shortcut-row"><span class="key">Ctrl + S</span><span>Save File</span></div>
+            <div class="shortcut-row"><span class="key">Shift + Alt + F</span><span>Format Code</span></div>
+            <div class="shortcut-row"><span class="key">Ctrl + Shift + E</span><span>Toggle Explorer</span></div>
+            <div class="shortcut-row"><span class="key">Ctrl + /</span><span>Toggle Comment</span></div>
+          </div>
+        </div>
+
+        <!-- SETTINGS PANEL -->
+        <div class="drawer-panel" id="panel-settings">
+          <div class="panel-header">
+            <span>SETTINGS</span>
+          </div>
+          <div class="settings-form">
+            <div class="setting-item">
+              <label>Font Size</label>
+              <select id="setting-font-size">
+                <option value="12px">12px</option>
+                <option value="14px" selected>14px (Default)</option>
+                <option value="16px">16px</option>
+                <option value="18px">18px</option>
+              </select>
+            </div>
+            <div class="setting-item">
+              <label>Tab Indent Size</label>
+              <select id="setting-tab-size">
+                <option value="2">2 Spaces</option>
+                <option value="4" selected>4 Spaces</option>
+              </select>
+            </div>
+            <div class="setting-item">
+              <label>Theme Preset</label>
+              <select id="setting-theme">
+                <option value="theme-jetbrains" selected>JetBrains Dark</option>
+                <option value="theme-dracula">Dracula</option>
+                <option value="theme-onedark">One Dark Pro</option>
+                <option value="theme-cyberpunk">Cyberpunk Glow</option>
+              </select>
+            </div>
+            <div class="setting-item">
+              <label>Real-Time Linting</label>
+              <input type="checkbox" id="setting-linting" checked>
+            </div>
+          </div>
+        </div>
+
+      </aside>
+
+      <!-- CENTER EDITOR AREA & BOTTOM PANEL SPLIT -->
+      <main class="editor-workspace">
+
+        <!-- FILE TAB BAR -->
+        <div class="tab-bar" id="tab-bar">
+          <!-- Dynamic Tabs -->
+        </div>
+
+        <!-- CODE EDITOR CONTAINER -->
+        <div class="editor-container" id="editor-container">
+          <div class="gutter-lines" id="editor-gutter">1</div>
+          <textarea id="code-editor" spellcheck="false" autocomplete="off" placeholder="// Type your Java code here..."></textarea>
+
+          <!-- Linting Warning/Error Overlay Bar -->
+          <div class="editor-lint-status" id="lint-status-bar">
+            <i class="fa-solid fa-check-circle text-success"></i> No syntax errors detected.
+          </div>
+        </div>
+
+        <!-- RESIZABLE SPLITTER BAR -->
+        <div class="resizer" id="panel-resizer"></div>
+
+        <!-- BOTTOM CONSOLE / OUTPUT PANEL -->
+        <section class="bottom-panel" id="bottom-panel">
+
+          <div class="panel-tab-bar">
+            <div class="panel-tabs">
+              <button class="tab-btn active" data-panel="terminal">
+                <i class="fa-solid fa-terminal"></i> Terminal Output
+              </button>
+              <button class="tab-btn" data-panel="canvas">
+                <i class="fa-solid fa-display"></i> Canvas Screen
+              </button>
+              <button class="tab-btn" data-panel="ast-viewer">
+                <i class="fa-solid fa-code-branch"></i> AST Visualizer
+              </button>
+              <button class="tab-btn" data-panel="bytecode">
+                <i class="fa-solid fa-binary"></i> Bytecode (javap)
+              </button>
+              <button class="tab-btn" data-panel="junit">
+                <i class="fa-solid fa-vial-circle-check"></i> JUnit Tests
+              </button>
+            </div>
+
+            <div class="panel-actions">
+              <button class="icon-btn" id="btn-clear-console" title="Clear Console"><i class="fa-solid fa-trash-can"></i></button>
+              <button class="icon-btn" id="btn-toggle-panel" title="Toggle Panel Height"><i class="fa-solid fa-chevron-down"></i></button>
+            </div>
+          </div>
+
+          <div class="panel-content-area">
+
+            <!-- TERMINAL PANEL -->
+            <div class="panel-sub-view active" id="view-terminal">
+              <div class="terminal-body" id="terminal-output">
+                <div class="term-line term-system">JavaBox 2.0 In-Browser Environment Ready. Type or select a template to run.</div>
+              </div>
+              <!-- STDIN INPUT BAR -->
+              <div class="terminal-input-bar hidden" id="terminal-input-container">
+                <span class="prompt-icon">&gt;</span>
+                <input type="text" id="terminal-stdin-input" placeholder="Scanner input required. Type value and press Enter...">
+                <button class="btn btn-sm btn-primary" id="btn-submit-stdin">Submit</button>
+              </div>
+            </div>
+
+            <!-- CANVAS GRAPHICS PANEL -->
+            <div class="panel-sub-view" id="view-canvas">
+              <div class="canvas-wrapper">
+                <canvas id="java-canvas" width="600" height="400"></canvas>
+                <div class="canvas-overlay-info">600 x 400 | JavaCanvas 2D Context</div>
+              </div>
+            </div>
+
+            <!-- AST VISUALIZER PANEL -->
+            <div class="panel-sub-view" id="view-ast-viewer">
+              <pre class="code-view" id="ast-raw-view">// AST JSON Structure</pre>
+            </div>
+
+            <!-- BYTECODE PANEL -->
+            <div class="panel-sub-view" id="view-bytecode">
+              <pre class="code-view" id="bytecode-raw-view">// Compiled class bytecodes (javap -c output simulation)</pre>
+            </div>
+
+            <!-- JUNIT TEST PANEL -->
+            <div class="panel-sub-view" id="view-junit">
+              <div class="junit-container" id="junit-results-view">
+                <div class="empty-state">Run a test file to view JUnit assertions report.</div>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+      </main>
+
+    </div>
+
+    <!-- STATUS BAR -->
+    <footer class="ide-status-bar">
+      <div class="status-left">
+        <span class="status-item" id="status-mode"><i class="fa-solid fa-code-branch"></i> main</span>
+        <span class="status-item" id="status-file-type">Java</span>
+        <span class="status-item" id="status-encoding">UTF-8</span>
+      </div>
+      <div class="status-right">
+        <span class="status-item" id="status-cursor">Ln 1, Col 1</span>
+        <span class="status-item" id="status-memory"><i class="fa-solid fa-memory"></i> Heap: 12MB</span>
+        <span class="status-item text-success"><i class="fa-solid fa-circle-check"></i> System Ready</span>
+      </div>
+    </footer>
+
+    <!-- COMMAND PALETTE MODAL -->
+    <div class="modal-overlay hidden" id="command-palette-modal">
+      <div class="command-palette">
+        <div class="palette-input-wrapper">
+          <i class="fa-solid fa-magnifying-glass"></i>
+          <input type="text" id="palette-search" placeholder="Type a command or search action...">
+        </div>
+        <div class="palette-options" id="palette-results">
+          <!-- Dynamic options -->
+        </div>
+      </div>
+    </div>
+
+    <!-- INPUT DIALOG MODAL -->
+    <div class="modal-overlay hidden" id="prompt-modal">
+      <div class="modal-card">
+        <h3 id="prompt-modal-title">Enter File Name</h3>
+        <input type="text" id="prompt-modal-input" class="modal-input" placeholder="e.g. MyClass.java">
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="btn-prompt-cancel">Cancel</button>
+          <button class="btn btn-primary" id="btn-prompt-confirm">Confirm</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TOAST NOTIFICATION CONTAINER -->
+    <div class="toast-container" id="toast-container"></div>
+
+  </div>
+
+  <!-- JavaScript Modules -->
+  <script src="js/templates.js"></script>
+  <script src="js/java-linter.js"></script>
+  <script src="js/java-ast.js"></script>
+  <script src="js/java-interpreter.js"></script>
+  <script src="js/cloud-compiler.js"></script>
+  <script src="js/cheerpj-engine.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
